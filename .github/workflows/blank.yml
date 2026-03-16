@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  rdp-linux:
+  rdp:
     runs-on: ubuntu-latest
     timeout-minutes: 3600
 
@@ -13,11 +13,17 @@ jobs:
         run: |
           sudo apt update
 
-      - name: Install Desktop + XRDP
+      - name: Install Desktop Environment
         run: |
           sudo apt install xfce4 xfce4-goodies xrdp -y
           sudo systemctl enable xrdp
           sudo systemctl start xrdp
+
+      - name: Fix XFCE Session
+        run: |
+          echo "startxfce4" > ~/.xsession
+          chmod +x ~/.xsession
+          echo "export XDG_CONFIG_DIRS=/etc/xdg" >> ~/.xsession
 
       - name: Create RDP User
         run: |
@@ -28,31 +34,18 @@ jobs:
           echo "RDP_USER=rdp" >> $GITHUB_ENV
           echo "RDP_PASS=$PASSWORD" >> $GITHUB_ENV
 
-      - name: Start Desktop Session
+      - name: Show RDP Details
         run: |
-          echo xfce4-session > ~/.xsession
-
-      - name: Install Tailscale
-        run: |
-          curl -fsSL https://tailscale.com/install.sh | sh
-
-      - name: Connect Tailscale
-        run: |
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }}
-
-      - name: Show Details
-        run: |
-          IP=$(tailscale ip -4)
-          echo "======================"
-          echo "RDP IP: $IP"
+          echo "==============================="
+          echo "RDP Address: GitHub Runner IP"
+          echo "Port: 3389"
           echo "User: $RDP_USER"
           echo "Password: $RDP_PASS"
-          echo "Port: 3389"
-          echo "======================"
+          echo "==============================="
 
       - name: Keep Runner Alive
         run: |
           while true; do
-            echo "RDP Running..."
+            echo "RDP Server Running..."
             sleep 300
           done
