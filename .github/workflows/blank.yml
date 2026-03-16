@@ -1,51 +1,55 @@
-name: Linux RDP
+name: RDP
 
 on:
   workflow_dispatch:
 
 jobs:
   rdp:
-    runs-on: ubuntu-latest
-    timeout-minutes: 3600
+    runs-on: windows-latest
+    timeout-minutes: 360
 
     steps:
-      - name: Update System
+      - name: Enable Remote Desktop
         run: |
-          sudo apt update
-
-      - name: Install Desktop Environment
-        run: |
-          sudo apt install xfce4 xfce4-goodies xrdp -y
-          sudo systemctl enable xrdp
-          sudo systemctl start xrdp
-
-      - name: Fix XFCE Session
-        run: |
-          echo "startxfce4" > ~/.xsession
-          chmod +x ~/.xsession
-          echo "export XDG_CONFIG_DIRS=/etc/xdg" >> ~/.xsession
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
       - name: Create RDP User
         run: |
-          PASSWORD=$(openssl rand -base64 12)
-          sudo useradd -m rdp
-          echo "rdp:$PASSWORD" | sudo chpasswd
-          sudo adduser rdp sudo
-          echo "RDP_USER=rdp" >> $GITHUB_ENV
-          echo "RDP_PASS=$PASSWORD" >> $GITHUB_ENV
+          $password = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 12 | % {[char]$_})
+          $secure = ConvertTo-SecureString $password -AsPlainText -Force
+
+          New-LocalUser -Name "rdp" -Password $secure -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member "rdp"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "rdp"
+
+          echo "RDP_USER=rdp" >> $env:GITHUB_ENV
+          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
+
+      - name: Install Tailscale
+        run: |
+          Invoke-WebRequest https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi -OutFile tailscale.msi
+          Start-Process msiexec.exe -ArgumentList "/i tailscale.msi /quiet /norestart" -Wait
+          Remove-Item tailscale.msi
+
+      - name: Connect Tailscale
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-rdp-$env:GITHUB_RUN_ID
+
+          Start-Sleep 10
+
+          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          echo "TS_IP=$ip" >> $env:GITHUB_ENV
 
       - name: Show RDP Details
         run: |
           echo "==============================="
-          echo "RDP Address: GitHub Runner IP"
+          echo "RDP Address: $env:TS_IP"
           echo "Port: 3389"
-          echo "User: $RDP_USER"
-          echo "Password: $RDP_PASS"
+          echo "User: $env:RDP_USER"
+          echo "Password: $env:RDP_PASS"
           echo "==============================="
 
       - name: Keep Runner Alive
         run: |
-          while true; do
-            echo "RDP Server Running..."
-            sleep 300
-          done
+          Start-Sleep -Seconds 21600
